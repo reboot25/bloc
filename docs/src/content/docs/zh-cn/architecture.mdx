@@ -1,0 +1,115 @@
+---
+title: 架构
+description: 使用 bloc 的推荐架构的概述。
+---
+
+import DataProviderSnippet from '~/components/architecture/DataProviderSnippet.astro';
+import RepositorySnippet from '~/components/architecture/RepositorySnippet.astro';
+import BusinessLogicComponentSnippet from '~/components/architecture/BusinessLogicComponentSnippet.astro';
+import BlocTightCouplingSnippet from '~/components/architecture/BlocTightCouplingSnippet.astro';
+import BlocLooseCouplingPresentationSnippet from '~/components/architecture/BlocLooseCouplingPresentationSnippet.astro';
+import AppIdeasRepositorySnippet from '~/components/architecture/AppIdeasRepositorySnippet.astro';
+import AppIdeaRankingBlocSnippet from '~/components/architecture/AppIdeaRankingBlocSnippet.astro';
+import PresentationComponentSnippet from '~/components/architecture/PresentationComponentSnippet.astro';
+
+![Bloc 架构](~/assets/concepts/bloc_architecture_full.png)
+
+使用 bloc 库会将应用成分三层：
+
+- 展现层
+- 业务逻辑层
+- 数据层
+  - 仓储
+  - 数据提供程序
+
+我们会从最底层向上讨论（离用户界面最远的一层），直到展现层。
+
+## 数据层
+
+数据层负责从单个或者多个源读取和操作数据。
+
+数据层分成两个部分：
+
+- 仓储
+- 数据提供程序
+
+这是应用与数据库，网络请求或者其他异步数据源交互的最底层。
+
+### 数据提供程序
+
+数据提供程序负责提供原始数据，它可以是通用并且多功能的。
+
+数据提供程序通常公开简单的API来实现 [CRUD](https://en.wikipedia.org/wiki/Create,_read,_update_and_delete) 操作。
+我们的数据层可能会包含 `createData`, `readData`, `updateData`, 以及 `deleteData` 方法。
+
+<DataProviderSnippet />
+
+### 仓储
+
+仓储层是与 Bloc 层进行通讯的一个或者多个数据提供程序的一层包装。
+
+<RepositorySnippet />
+
+如您所见，我们的仓储层可以与多个数据提供程序交互并且对数据进行转换，然后将结果交给业务逻辑层。
+
+## 业务逻辑层
+
+业务逻辑层负责响应展现层新的状态的输入。这一层可以依赖一个或者多个仓储来读取数据以构建应用的状态。
+
+可以将业务逻辑看作用户界面（展现层）和数据层的桥梁。业务逻辑层会收到来自展现层的事件/动作通知，然后与仓储进行通信以便为展现层构建新的状态。
+
+<BusinessLogicComponentSnippet />
+
+### Bloc-到-Bloc 通信
+
+由于 bloc 暴露了流，因此可能很容易想创建一个 bloc 来监听另一个 bloc。你**不应该**这样做。除了使用下面的代码之外，还有更好的替代方案：
+
+<BlocTightCouplingSnippet />
+
+尽管上面的代码是没有错误的（并且可以自行清理），它仍然有一个更大的问题：它在两个 blocs 之间建立了依赖。
+
+通常来说，应该不惜一切代价避免同一架构层中两个实体之间的同级依赖关系，因为这会造成难以维护的紧密耦合。由于 blocs 位于业务逻辑层，因此任何 blocs 都不应知道其他 blocs 的存在。
+
+![应用程序架构](~/assets/architecture/architecture.png)
+
+bloc 应该仅从事件和注入的仓储哪里获取信息 (例如：通过 bloc 的构造函数获得仓储对象)。
+
+如果你需要一个 bloc 响应另一个 bloc，你有另外两个选项。你可以将这个问题往上一层抛（到展现层），或者往下一层抛（到领域层）。
+
+#### 通过展现层连接 Blocs
+
+你可以用 `BlocListener` 来监听某一个 bloc 并且在发生变更时向另一个 bloc 发送事件。
+
+<BlocLooseCouplingPresentationSnippet />
+
+上面的代码防止 `SecondBloc` 感知 `FirstBloc` 的存在，从而实现松散耦合。[Fultter 天气](/tutorials/zh-cn/flutter-weather) 应用 [使用这个技术](https://github.com/felangel/bloc/blob/b4c8db938ad71a6b60d4a641ec357905095c3965/examples/flutter_weather/lib/weather/view/weather_page.dart#L38-L42) 基于获取的天气信息来改变应用的主题。
+
+在某些情况下，你可能不希望在展现层耦合两个 blocs。相反，让两个 blocs 共享相同的数据源并且在数据发生变化时更新可能会更加合理。
+
+#### 在领域层连接 Blocs
+
+两个 blocs 可以监听来自仓储的流，并在仓储数据发生变化时单独更新各自的状态。使用响应式仓储保持状态同步在大型企业应用程序中很常见。
+
+首先，创建或者使用提供 `Stream` 的仓储。例如，下面的仓储公开了应用创意的永不结束的流：
+
+<AppIdeasRepositorySnippet />
+
+相同的仓储可以被注入到每个需要新应用点子的 bloc 里。下面是一个 `AppIdeaRankingBloc` 对上面仓储提供的每一个应用创意发出一个状态。
+
+<AppIdeaRankingBlocSnippet />
+
+关于更多使用 Bloc 的 streams，参考 [如何使用 Bloc 的流和并发](https://verygood.ventures/blog/how-to-use-bloc-with-streams-and-concurrency).
+
+## 展现层
+
+展现层负责如何基于一个或者多个 bloc 状态渲染。除此之外，它还要负责处理用户的输入和应用的生命周期事件。
+
+大部分应用流程都是从 `AppStart` 事件开始并且触发应用去获取一些数据并展现给用户。
+
+在这种情况下，展现层应该添加一个 `AppStart` 事件。
+
+除此以外，展现层还要负责基于 bloc 层的状态在屏幕上渲染的内容。
+
+<PresentationComponentSnippet />
+
+目前为止，尽管我们已经有一些代码片段了，但是所有这些都还是比较笼统的。在教程部分我们会构建几个不同的示例应用并且将这些片段组合到一起。

@@ -144,6 +144,9 @@ export default defineConfig({
 						{
 							label: 'Architecture',
 							link: '/architecture/',
+							translations: {
+								'zh-CN': '架构',
+							},
 						},
 						{
 							label: 'Modeling State',
